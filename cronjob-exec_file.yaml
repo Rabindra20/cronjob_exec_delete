@@ -1,0 +1,71 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: sa-exec-deploy-pods-demo
+  namespace: demo
+
+---
+
+# 2. Create a role
+
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  namespace: demo
+  name: exec-deploy-pods-role-demo
+rules:
+- apiGroups: [""]
+  resources: ["pods","pods/exec"]
+  verbs: ["*"]
+
+---
+
+# 3. Attach the role to the service account
+
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: exec-deploy-pods-rolebinding-demo
+  namespace: demo
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: exec-deploy-pods-role-demo
+subjects:
+- kind: ServiceAccount
+  name: sa-exec-deploy-pods-demo
+  namespace: demo
+
+---
+
+# 4. Create a cronjob (with a crontab schedule) using the service account to check for completed jobs
+
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: exec-deploy-pods--demo
+  namespace: demo
+spec:
+  schedule: "0 */2 * * *"
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          serviceAccountName: sa-exec-deploy-pods-demo
+          containers:
+          - name: kubectl-container
+            image: bitnami/kubectl:latest
+            imagePullPolicy: IfNotPresent
+            # I'm using bitnami kubectl, because the suggested kubectl image didn't had the `field-selector` option
+            command: ["sh", "-c", "POD_NAME=$(kubectl get pods -l app=demo-executor-deployment -o=jsonpath='{.items[0].metadata.name}' -n demo) && kubectl exec -it $POD_NAME -n demo -- node index.js"]
+            resources:
+              limits:
+                memory: "300Mi"
+                cpu: "500m"
+              requests:
+                cpu: "500m" 
+                memory: "300Mi"
+          restartPolicy: Never
+          
